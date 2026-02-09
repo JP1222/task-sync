@@ -75,7 +75,7 @@ class TickTickAPI:
         return self._request(f"/task/{task['id']}", "POST", task)
 
     def complete_task(self, project_id, task_id):
-        return self._request(f"/task/{task_id}/complete", "POST")
+        return self._request(f"/project/{project_id}/task/{task_id}/complete", "POST")
 
     def delete_task(self, project_id, task_id):
         return self._request(f"/project/{project_id}/task/{task_id}", "DELETE")

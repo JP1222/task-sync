@@ -1,50 +1,163 @@
+[**中文**](README_CN.md) | English
+
 # Task Sync
 
-TickTick <-> Google Tasks 双向实时同步
+Bidirectional sync between **TickTick** and **Google Tasks** with smart list support.
 
-## 日期策略（防止 Google Calendar 重复）
+Built as an [OpenClaw](https://openclaw.ai/) skill — runs automatically via cron or manually on demand.
 
-| 列表类型 | 日期 | 说明 |
-|----------|------|------|
-| 常规列表 | ❌ 不含日期 | 日期转发到 TickTick 后从 Google 清除 |
-| All 智能列表 | ✅ 含日期 | Calendar 唯一数据源 |
-| Today / Next 7 Days | ❌ 不含日期 | 仅作为过滤视图 |
+## Features
 
-## 同步流程
+- **Bidirectional list sync** — Google Task Lists and TickTick Projects are auto-matched by name or created as needed
+- **Bidirectional task sync** — titles, completion status, notes/content
+- **Priority mapping** — TickTick priority levels appear as Google task title prefixes (`[★]` high, `[!]` medium)
+- **Smart lists** (one-way, TickTick → Google):
+  - **Today** — overdue + today's tasks
+  - **Next 7 Days** — upcoming week
+  - **All** — every active task (with dates)
+- **Date strategy** that prevents Google Calendar duplicates (see below)
+- **Idempotent** — safe to run repeatedly without creating duplicates
 
-1. **列表同步**（双向）：Google Lists <-> TickTick Projects 自动匹配/创建
-2. **任务同步**（双向）：标题、完成状态、优先级（TickTick 优先级 -> Google 标题前缀）
-3. **智能列表**（单向 TickTick -> Google）：Today、Next 7 Days、All
+## Date Strategy
 
-## 文件结构
+Google Tasks with due dates automatically appear in Google Calendar. To prevent duplicates across lists, dates are handled carefully:
 
-| 文件 | 说明 |
-|------|------|
-| `sync.py` | 主同步脚本 |
-| `utils/google_api.py` | Google Tasks API（支持分页、Token 自动刷新） |
-| `utils/ticktick_api.py` | TickTick Open API 封装 |
-| `scripts/setup_ticktick.py` | TickTick OAuth 授权 |
-| `scripts/setup_google_tasks.py` | Google Tasks 权限设置 |
-| `config.json` | 配置文件 |
+| List Type | Dates in Google | Reason |
+|-----------|:-:|--------|
+| Regular lists | No | Dates forwarded to TickTick, then cleared from Google |
+| "All" smart list | Yes | Single Calendar source of truth |
+| "Today" / "Next 7 Days" | No | Filtered views only |
 
-## 数据文件
+## Architecture
 
-| 文件 | 说明 |
-|------|------|
-| `sync_db.json` | 任务映射数据库 |
-| `sync_log.json` | 同步统计日志 |
-| `data/ticktick_token.json` | TickTick Access Token |
-
-## 使用
-
-```bash
-# 手动同步
-/home/ubuntu/.openclaw/workspace/task-sync/sync.py
-
-# 查看日志
-cat /home/ubuntu/.openclaw/workspace/task-sync/sync_log.json
+```
+sync.py                        Main sync orchestrator
+utils/
+  google_api.py                Google Tasks API wrapper (pagination, token refresh)
+  ticktick_api.py              TickTick Open API wrapper
+scripts/
+  setup_google_tasks.py        Google OAuth setup
+  setup_ticktick.py            TickTick OAuth setup
+config.json                    Paths to tokens and data files
+sync_db.json                   Task/list mapping database (auto-generated)
+sync_log.json                  Sync statistics log (auto-generated)
+e2e_test.py                    End-to-end test suite (15 tests)
 ```
 
-## Cron
+### Sync Flow
 
-每 10 分钟自动同步（通过 OpenClaw cron 系统）
+```
+1. List Sync (bidirectional)
+   Google Lists <──────────> TickTick Projects
+   - Match by name (case-insensitive)
+   - "My Tasks" <-> "Inbox" (special case)
+   - Unmatched lists create counterparts
+
+2. Task Sync (bidirectional, per list pair)
+   Google Tasks <──────────> TickTick Tasks
+   - New tasks synced both ways
+   - Completion propagated both ways
+   - Dates: Google → TickTick (forwarded), then cleared from Google
+   - Priority: TickTick → Google (title prefix)
+   - Notes/content synced on creation
+
+3. Smart Lists (one-way: TickTick → Google)
+   TickTick ──────────────> Google "Today" / "Next 7 Days" / "All"
+   - Stale tasks auto-removed when no longer matching
+```
+
+## Setup
+
+### Prerequisites
+
+- Python 3.10+
+- Google Cloud project with Tasks API enabled
+- TickTick developer app (from [developer.ticktick.com](https://developer.ticktick.com/))
+
+### 1. Install dependencies
+
+```bash
+pip install google-auth google-auth-oauthlib google-api-python-client requests
+```
+
+### 2. Configure Google Tasks
+
+```bash
+python scripts/setup_google_tasks.py
+```
+
+Follow the OAuth flow to authorize. Token is saved to `config/` or your configured path.
+
+### 3. Configure TickTick
+
+```bash
+python scripts/setup_ticktick.py
+```
+
+Follow the OAuth flow. You'll need your TickTick app's Client ID and Client Secret.
+
+### 4. Edit config.json
+
+```json
+{
+  "google_token": "/path/to/google/token.json",
+  "ticktick_token": "/path/to/ticktick/token.json",
+  "sync_db": "/path/to/sync_db.json",
+  "sync_log": "/path/to/sync_log.json",
+  "ticktick_api_base": "https://api.ticktick.com/open/v1"
+}
+```
+
+### 5. Run
+
+```bash
+python sync.py
+```
+
+## Automation
+
+Set up a cron job for periodic sync:
+
+```bash
+# Every 10 minutes
+*/10 * * * * /path/to/python /path/to/sync.py >> /path/to/sync.log 2>&1
+```
+
+Or use OpenClaw's built-in cron system for managed scheduling.
+
+## Testing
+
+The project includes a comprehensive end-to-end test suite that tests against live APIs:
+
+```bash
+python e2e_test.py
+```
+
+### Test Coverage (15 tests)
+
+| # | Test | Direction |
+|---|------|-----------|
+| 1 | New task sync | Google → TickTick |
+| 2 | New task sync | TickTick → Google |
+| 3 | Completion sync | Google → TickTick |
+| 4 | Completion sync | TickTick → Google |
+| 5 | Due date forward & clear | Google → TickTick |
+| 6 | Due date in "All" list only | TickTick → Google |
+| 7 | "Today" smart list population | TickTick → Google |
+| 8 | "Next 7 Days" smart list population | TickTick → Google |
+| 9 | High priority `[★]` prefix | TickTick → Google |
+| 10 | Smart list names don't leak to TickTick | Guard |
+| 11 | Medium priority `[!]` prefix | TickTick → Google |
+| 12 | Notes/content sync | Google → TickTick |
+| 13 | Idempotency (no duplicates) | Both |
+| 14 | New list → project creation | Google → TickTick |
+| 15 | Stale smart list task removal | Cleanup |
+
+## API References
+
+- [Google Tasks REST API](https://developers.google.com/workspace/tasks/reference/rest)
+- [TickTick Open API](https://developer.ticktick.com/)
+
+## License
+
+MIT

@@ -61,6 +61,14 @@ def to_ticktick_date(rfc3339):
     return rfc3339.replace("Z", "+0000") if rfc3339 else None
 
 
+def to_google_date(ticktick_date):
+    """Convert TickTick date to Google RFC 3339 format."""
+    if not ticktick_date:
+        return None
+    # TickTick: "2026-03-01T00:00:00.000+0000" -> Google: "2026-03-01T00:00:00.000Z"
+    return ticktick_date.replace("+0000", "Z").replace("+00:00", "Z")
+
+
 def parse_date(s):
     """Parse date string to date-only datetime."""
     if not s:
@@ -83,6 +91,7 @@ class TaskSync:
         self.google = GoogleAPI(self.cfg["google_token"])
         self.ticktick = TickTickAPI(self.cfg["ticktick_token"], self.cfg["ticktick_api_base"])
         self.stats = {"created": 0, "updated": 0, "completed": 0, "errors": 0}
+        self._tt_task_cache = {}  # project_id -> [tasks], populated during _sync_tasks
 
     def run(self):
         log.info("Starting sync")
@@ -196,9 +205,17 @@ class TaskSync:
         g_tasks = self.google.get_tasks(g_list["id"], show_completed=True)
         t_tasks = self.ticktick.get_tasks(t_proj["id"]) or []
 
+        # Cache for smart list reuse (avoids re-fetching)
+        self._tt_task_cache[t_proj["id"]] = t_tasks
+
         t_idx = {t["id"]: t for t in t_tasks}
         task_db = self.db["tasks"]
         done_t = set()
+
+        # Build reverse index tid->gid once (O(n) total instead of O(n) per lookup)
+        rev_idx = {}
+        for gid, tid in task_db.items():
+            rev_idx.setdefault(tid, gid)
 
         # ── Phase 1: Process Google tasks ──
 
@@ -261,6 +278,7 @@ class TaskSync:
 
                 if match:
                     task_db[gid] = match["id"]
+                    rev_idx.setdefault(match["id"], gid)
                     done_t.add(match["id"])
                     log.info("Linked task: %s", g["title"])
                 else:
@@ -273,6 +291,7 @@ class TaskSync:
                     )
                     if new_t and "id" in new_t:
                         task_db[gid] = new_t["id"]
+                        rev_idx[new_t["id"]] = gid
                         done_t.add(new_t["id"])
                         self.stats["created"] += 1
 
@@ -287,8 +306,8 @@ class TaskSync:
             if tid in done_t:
                 continue
 
-            # Check if mapped to a Google task outside this list
-            known_gid = next((k for k, v in task_db.items() if v == tid), None)
+            # O(1) lookup via reverse index instead of O(n) scan
+            known_gid = rev_idx.get(tid)
 
             if known_gid:
                 # Mapped partner missing from this Google list -> likely deleted/moved
@@ -303,6 +322,7 @@ class TaskSync:
                 )
                 if new_g:
                     task_db[new_g["id"]] = tid
+                    rev_idx[tid] = new_g["id"]
                     self.stats["created"] += 1
 
     # ── Smart Lists (one-way: TickTick -> Google) ────────────
@@ -310,7 +330,7 @@ class TaskSync:
     def _sync_smart_lists(self):
         log.info("--- Smart Lists ---")
 
-        # Gather all active TickTick tasks across all projects
+        # Use cached tasks from _sync_tasks where possible, fetch only uncached projects
         projects = self.ticktick.get_projects()
         if not any(p["id"] == "inbox" for p in projects):
             projects.append({"id": "inbox", "name": "Inbox"})
@@ -318,7 +338,11 @@ class TaskSync:
         all_tasks = []
         seen = set()
         for p in projects:
-            for t in self.ticktick.get_tasks(p["id"]) or []:
+            pid = p["id"]
+            tasks = self._tt_task_cache.get(pid)
+            if tasks is None:
+                tasks = self.ticktick.get_tasks(pid) or []
+            for t in tasks:
                 if t["id"] not in seen:
                     all_tasks.append(t)
                     seen.add(t["id"])
@@ -380,7 +404,7 @@ class TaskSync:
                 gid = None
 
             title = apply_priority(t["title"], t.get("priority", 0))
-            due = t.get("dueDate") if with_dates else None
+            due = to_google_date(t.get("dueDate")) if with_dates else None
 
             if gid:
                 g = g_idx[gid]
