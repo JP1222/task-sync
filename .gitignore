@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+
+# Credentials & tokens
+config/
+data/
+*.token.json
+
+# Runtime data
+sync_db.json
+sync_log.json
+
+# Debug scripts
+debug_*.py
+
+# OS
+.DS_Store
