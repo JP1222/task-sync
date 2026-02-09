@@ -6,6 +6,8 @@ __pycache__/
 config/
 data/
 *.token.json
+config.json
+.env
 
 # Runtime data
 sync_db.json
@@ -16,3 +18,6 @@ debug_*.py
 
 # OS
 .DS_Store
+
+# IDE / OpenClaw
+.claude/
