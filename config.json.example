@@ -1,7 +1,7 @@
 {
     "google_token": "/path/to/google/token.json",
     "ticktick_token": "/path/to/ticktick/token.json",
-    "sync_db": "/path/to/sync_db.json",
-    "sync_log": "/path/to/sync_log.json",
+    "sync_db": "/path/to/data/sync_db.json",
+    "sync_log": "/path/to/data/sync_log.json",
     "ticktick_api_base": "https://api.ticktick.com/open/v1"
 }
