@@ -1,5 +1,3 @@
-[**中文**](README_CN.md) | English
-
 # Task Sync
 
 Bidirectional sync between **TickTick** and **Google Tasks** with smart list support.
@@ -86,7 +84,10 @@ pip install google-auth google-auth-oauthlib google-api-python-client requests
 python scripts/setup_google_tasks.py
 ```
 
-Follow the OAuth flow to authorize. Token is saved to `config/` or your configured path.
+Place your Google OAuth desktop client JSON at `config/google_credentials.json`
+(or set `GOOGLE_CREDENTIALS_FILE`), then follow the OAuth flow.
+The token is written to `config.json`'s `google_token` path when configured,
+or `data/google_token.json` by default.
 
 ### 3. Configure TickTick
 
@@ -94,7 +95,10 @@ Follow the OAuth flow to authorize. Token is saved to `config/` or your configur
 python scripts/setup_ticktick.py
 ```
 
-Follow the OAuth flow. You'll need your TickTick app's Client ID and Client Secret.
+Create `config/ticktick_creds.json` from `config/ticktick_creds.json.example`
+(or set `TICKTICK_CREDENTIALS_FILE`), then follow the OAuth flow.
+The token is written to `config.json`'s `ticktick_token` path when configured,
+or `data/ticktick_token.json` by default.
 
 ### 4. Edit config.json
 
